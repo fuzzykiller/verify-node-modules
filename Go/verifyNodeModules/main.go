@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync"
 	"time"
 )
 
@@ -27,8 +28,6 @@ type DependencyError struct {
 	ActualVersion   string
 }
 
-var checkedDependencies = 0
-
 func main() {
 	projectPath, err := os.Getwd()
 	if err != nil {
@@ -42,7 +41,7 @@ func main() {
 	packageLockFile, err := os.Open(packageLockPath)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Could not open 'package-lock.json' in current directory: %v\n", err)
-		os.Exit(-1)
+		os.Exit(-2)
 		return
 	}
 
@@ -52,39 +51,68 @@ func main() {
 	decoder := json.NewDecoder(packageLockFile)
 	if err := decoder.Decode(&packageLock); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Could not parse 'package-lock.json': %v\n", err)
-		os.Exit(-1)
+		os.Exit(-3)
 		return
 	}
 
 	start := time.Now()
 
-	nodeModulesPath := path.Join(projectPath, "node_modules")
+	var dependencyErrors []DependencyError
+	var wg sync.WaitGroup
+	exitCode := 0
+	checkedDependencies := 0
 
-	var exitCode = 0
-	for k, v := range packageLock.Dependencies {
-		dependencyErrors := getDependencyErrors(k, v, nodeModulesPath)
-		if dependencyErrors != nil {
-			for _, depErr := range dependencyErrors {
-				_, _ = fmt.Fprintf(os.Stderr, "Version mismatch for package '%s'! Wanted '%s' but got '%s'\n", depErr.PackageName, depErr.ExpectedVersion, depErr.ActualVersion)
-				exitCode++
+	counter := make(chan int)
+	errors := make(chan DependencyError)
+	done := make(chan int)
+
+	go func() {
+		for {
+			select {
+			case <-counter:
+				checkedDependencies++
+			case err := <-errors:
+				dependencyErrors = append(dependencyErrors, err)
+			case <-done:
+				return
 			}
 		}
+	}()
+
+	nodeModulesPath := path.Join(projectPath, "node_modules")
+
+	for k, v := range packageLock.Dependencies {
+		wg.Add(1)
+		go func(packageName string, dependency PackageLockDependency) {
+			defer wg.Done()
+			getDependencyErrors(packageName, dependency, nodeModulesPath, counter, errors)
+		}(k, v)
 	}
 
+	wg.Wait()
+	done <- 1
+
 	elapsed := time.Since(start)
+
+	for _, depErr := range dependencyErrors {
+		_, _ = fmt.Fprintf(os.Stderr, "Version mismatch for package '%s'! Wanted '%s' but got '%s'\n", depErr.PackageName, depErr.ExpectedVersion, depErr.ActualVersion)
+		exitCode++
+	}
+
 	fmt.Printf("Checked %d dependencies in %s\n", checkedDependencies, elapsed)
 	os.Exit(exitCode)
 }
 
-func getDependencyErrors(packageName string, dependency PackageLockDependency, nodeModulesPath string) []DependencyError {
+func getDependencyErrors(packageName string, dependency PackageLockDependency, nodeModulesPath string, counterChan chan int, errorsChan chan DependencyError) {
 	packagePath := path.Join(nodeModulesPath, packageName)
 	packageJsonPath := path.Join(packagePath, "package.json")
 
-	checkedDependencies++
+	counterChan <- 1
 
 	packageJsonFile, err := os.Open(packageJsonPath)
 	if err != nil {
-		return []DependencyError{{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "None"}}
+		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "None"}
+		return
 	}
 
 	defer packageJsonFile.Close()
@@ -92,21 +120,24 @@ func getDependencyErrors(packageName string, dependency PackageLockDependency, n
 	var packageJson PackageJson
 	decoder := json.NewDecoder(packageJsonFile)
 	if err := decoder.Decode(&packageJson); err != nil {
-		return []DependencyError{{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "Unknown"}}
+		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "Unknown"}
+		return
 	}
 
 	if packageJson.Version != dependency.Version {
-		return []DependencyError{{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: packageJson.Version}}
+		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: packageJson.Version}
 	}
 
-	nestedNodeModulesPath := path.Join(packagePath, "node_modules");
+	var wg sync.WaitGroup
+	nestedNodeModulesPath := path.Join(packagePath, "node_modules")
 
 	for k, v := range dependency.Dependencies {
-		nestedDependencyErrors := getDependencyErrors(k, v, nestedNodeModulesPath)
-		if nestedDependencyErrors != nil {
-			return nestedDependencyErrors
-		}
+		wg.Add(1)
+		go func(packageName string, dependency PackageLockDependency) {
+			defer wg.Done()
+			getDependencyErrors(packageName, dependency, nestedNodeModulesPath, counterChan, errorsChan)
+		}(k, v)
 	}
 
-	return nil
+	wg.Wait()
 }
