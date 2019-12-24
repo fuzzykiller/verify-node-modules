@@ -9,20 +9,20 @@ import (
 	"time"
 )
 
-type PackageJson struct {
+type packageJSONRoot struct {
 	Version string
 }
 
-type PackageLockDependency struct {
+type packageLockDependency struct {
 	Version      string
-	Dependencies map[string]PackageLockDependency
+	Dependencies map[string]packageLockDependency
 }
 
-type PackageLockRoot struct {
-	Dependencies map[string]PackageLockDependency
+type packageLockJSONRoot struct {
+	Dependencies map[string]packageLockDependency
 }
 
-type DependencyError struct {
+type dependencyError struct {
 	PackageName     string
 	ExpectedVersion string
 	ActualVersion   string
@@ -47,7 +47,7 @@ func main() {
 
 	defer packageLockFile.Close()
 
-	var packageLock PackageLockRoot
+	var packageLock packageLockJSONRoot
 	decoder := json.NewDecoder(packageLockFile)
 	if err := decoder.Decode(&packageLock); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Could not parse 'package-lock.json': %v\n", err)
@@ -57,13 +57,13 @@ func main() {
 
 	start := time.Now()
 
-	var dependencyErrors []DependencyError
+	var dependencyErrors []dependencyError
 	var wg sync.WaitGroup
 	exitCode := 0
 	checkedDependencies := 0
 
 	counter := make(chan int)
-	errors := make(chan DependencyError)
+	errors := make(chan dependencyError)
 	done := make(chan int)
 
 	go func() {
@@ -83,7 +83,7 @@ func main() {
 
 	for k, v := range packageLock.Dependencies {
 		wg.Add(1)
-		go func(packageName string, dependency PackageLockDependency) {
+		go func(packageName string, dependency packageLockDependency) {
 			defer wg.Done()
 			getDependencyErrors(packageName, dependency, nodeModulesPath, counter, errors)
 		}(k, v)
@@ -103,29 +103,29 @@ func main() {
 	os.Exit(exitCode)
 }
 
-func getDependencyErrors(packageName string, dependency PackageLockDependency, nodeModulesPath string, counterChan chan int, errorsChan chan DependencyError) {
+func getDependencyErrors(packageName string, dependency packageLockDependency, nodeModulesPath string, counterChan chan int, errorsChan chan dependencyError) {
 	packagePath := path.Join(nodeModulesPath, packageName)
-	packageJsonPath := path.Join(packagePath, "package.json")
+	packageJSONPath := path.Join(packagePath, "package.json")
 
 	counterChan <- 1
 
-	packageJsonFile, err := os.Open(packageJsonPath)
+	packageJSONFile, err := os.Open(packageJSONPath)
 	if err != nil {
-		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "None"}
+		errorsChan <- dependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "None"}
 		return
 	}
 
-	defer packageJsonFile.Close()
+	defer packageJSONFile.Close()
 
-	var packageJson PackageJson
-	decoder := json.NewDecoder(packageJsonFile)
-	if err := decoder.Decode(&packageJson); err != nil {
-		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "Unknown"}
+	var packageJSON packageJSONRoot
+	decoder := json.NewDecoder(packageJSONFile)
+	if err := decoder.Decode(&packageJSON); err != nil {
+		errorsChan <- dependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: "Unknown"}
 		return
 	}
 
-	if packageJson.Version != dependency.Version {
-		errorsChan <- DependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: packageJson.Version}
+	if packageJSON.Version != dependency.Version {
+		errorsChan <- dependencyError{PackageName: packageName, ExpectedVersion: dependency.Version, ActualVersion: packageJSON.Version}
 	}
 
 	var wg sync.WaitGroup
@@ -133,7 +133,7 @@ func getDependencyErrors(packageName string, dependency PackageLockDependency, n
 
 	for k, v := range dependency.Dependencies {
 		wg.Add(1)
-		go func(packageName string, dependency PackageLockDependency) {
+		go func(packageName string, dependency packageLockDependency) {
 			defer wg.Done()
 			getDependencyErrors(packageName, dependency, nestedNodeModulesPath, counterChan, errorsChan)
 		}(k, v)
