@@ -4,7 +4,10 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
-use crate::errors::{VerifyNodeModulesError, ErrorCode};
+use futures::executor::block_on;
+use futures::future::join_all;
+
+use crate::errors::{ErrorCode, VerifyNodeModulesError};
 use crate::npm_types::*;
 
 mod errors;
@@ -17,6 +20,11 @@ struct DependencyError {
     package_name: String,
     expected_version: String,
     actual_version: String,
+}
+
+async fn get_dependency_errors_async(package_name: &str, dependency: &PackageLockDependency, node_modules_path: &Path)
+                                     -> Box<dyn Iterator<Item=DependencyError>> {
+    get_dependency_errors(package_name, dependency, node_modules_path)
 }
 
 fn get_dependency_errors(package_name: &str, dependency: &PackageLockDependency, node_modules_path: &Path)
@@ -72,7 +80,7 @@ fn get_dependency_errors(package_name: &str, dependency: &PackageLockDependency,
     result
 }
 
-fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
+async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
     let project_path = env::current_dir().map_err(VerifyNodeModulesError::CouldNotGetCwd)?;
     let package_lock_path = project_path.join("package-lock.json");
 
@@ -85,16 +93,20 @@ fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
     let now = Instant::now();
 
     let node_modules_path = project_path.join("node_modules");
+    let dep_errs_futures = package_lock.dependencies.iter()
+        .map(|dep| get_dependency_errors_async(
+            dep.0, dep.1, node_modules_path.as_path()));
 
-    let dependency_errors: Vec<DependencyError> = package_lock.dependencies.iter()
-        .map(|dep| get_dependency_errors(
-            dep.0, dep.1, node_modules_path.as_path()))
+    let dep_errs_future = join_all(dep_errs_futures);
+
+    let dep_errs =  dep_errs_future.await
+        .into_iter()
         .flatten()
-        .collect();
+        .collect::<Vec<DependencyError>>();
 
     let mut exit_code = 0;
 
-    for dependency_error in dependency_errors {
+    for dependency_error in dep_errs {
         eprintln!("Version mismatch for package '{}'! Wanted '{}' but got '{}'",
                   dependency_error.package_name, dependency_error.expected_version, dependency_error.actual_version);
 
@@ -109,7 +121,9 @@ fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
 }
 
 fn main() {
-    match verify_node_modules() {
+    let result = block_on(verify_node_modules());
+
+    match result {
         Ok(exit_code) => { std::process::exit(exit_code) }
         Err(e) => {
             println!("Error: {}", e);
