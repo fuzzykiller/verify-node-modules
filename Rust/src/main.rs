@@ -1,11 +1,11 @@
-use core::iter;
 use std::{env, fs};
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 use futures::executor::block_on;
-use futures::future::join_all;
+use futures::future::{BoxFuture, join_all};
+use futures::FutureExt;
 
 use crate::errors::{ErrorCode, VerifyNodeModulesError};
 use crate::npm_types::*;
@@ -22,62 +22,69 @@ struct DependencyError {
     actual_version: String,
 }
 
-async fn get_dependency_errors_async(package_name: &str, dependency: &PackageLockDependency, node_modules_path: &Path)
-                                     -> Box<dyn Iterator<Item=DependencyError>> {
-    get_dependency_errors(package_name, dependency, node_modules_path)
-}
+fn get_dependency_errors<'a>(package_name: &'a str, dependency: &'a PackageLockDependency, node_modules_path: &'a Path)
+                             -> BoxFuture<'a, Vec<DependencyError>> {
+    let fut = async move {
+        let package_path = node_modules_path.join(package_name);
+        let package_json_path = package_path.as_path().join("package.json");
+        let nested_node_modules_path = package_path.as_path().join("node_modules");
 
-fn get_dependency_errors(package_name: &str, dependency: &PackageLockDependency, node_modules_path: &Path)
-                         -> Box<dyn Iterator<Item=DependencyError>> {
-    let package_path = node_modules_path.join(package_name);
-    let package_json_path = package_path.as_path().join("package.json");
-    let nested_node_modules_path = package_path.as_path().join("node_modules");
+        let make_dep_err = |actual_version: &str| DependencyError {
+            package_name: package_name.to_string(),
+            expected_version: dependency.version.to_string(),
+            actual_version: actual_version.to_string(),
+        };
 
-    let make_dep_err = |actual_version: &str| DependencyError {
-        package_name: package_name.to_string(),
-        expected_version: dependency.version.to_string(),
-        actual_version: actual_version.to_string(),
-    };
+        DEPENDENCY_COUNT.fetch_add(1, Ordering::Relaxed);
 
-    DEPENDENCY_COUNT.fetch_add(1, Ordering::Relaxed);
-
-    if !package_json_path.exists() {
-        return Box::new(iter::once(make_dep_err("None")));
-    }
-
-    let package_json_result: Result<PackageJSONRoot, VerifyNodeModulesError> = fs::read_to_string(package_json_path)
-        .map_err(VerifyNodeModulesError::CouldNotOpenPackageJson)
-        .and_then(|contents| serde_json::from_str(&contents)
-            .map_err(VerifyNodeModulesError::CouldNotParsePackageJson));
-
-    let package_json = match package_json_result {
-        Ok(json_root) => json_root,
-        Err(ref e) => {
-            let dep_err = make_dep_err(&format!("Unknown ({})", e));
-
-            return Box::new(iter::once(dep_err));
+        if !package_json_path.exists() {
+            return vec!(make_dep_err("None"));
         }
+
+        let package_json_result: Result<PackageJSONRoot, VerifyNodeModulesError> = fs::read_to_string(package_json_path)
+            .map_err(VerifyNodeModulesError::CouldNotOpenPackageJson)
+            .and_then(|contents| serde_json::from_str(&contents)
+                .map_err(VerifyNodeModulesError::CouldNotParsePackageJson));
+
+        let package_json = match package_json_result {
+            Ok(json_root) => json_root,
+            Err(ref e) => {
+                let dep_err = make_dep_err(&format!("Unknown ({})", e));
+
+                return vec!(dep_err);
+            }
+        };
+
+        if package_json.version != dependency.version {
+            return vec!(make_dep_err(&package_json.version));
+        }
+
+        let nested_dep_errs_future = dependency.dependencies
+            .as_ref()
+            .map(|deps| {
+                let dep_errs_futures = deps.iter()
+                    .map(|dep| get_dependency_errors(
+                        dep.0, dep.1, nested_node_modules_path.as_path()));
+
+                join_all(dep_errs_futures)
+            });
+
+        let result = match nested_dep_errs_future {
+            Some(future) => {
+                let dep_errs = future.await
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+
+                dep_errs
+            }
+            None => Vec::new()
+        };
+
+        result
     };
-
-    if package_json.version != dependency.version {
-        return Box::new(iter::once(make_dep_err(&package_json.version)));
-    }
-
-    let nested_dep_errs = dependency.dependencies.as_ref().map(|deps| {
-        deps.iter()
-            .map(|dep| get_dependency_errors(
-                dep.0, dep.1, nested_node_modules_path.as_path()))
-            .flatten()
-            .collect::<Vec<DependencyError>>()
-            .into_iter()
-    });
-
-    let result: Box<dyn Iterator<Item=DependencyError>> = match nested_dep_errs {
-        Some(dep_err) => Box::new(dep_err),
-        None => Box::new(iter::empty())
-    };
-
-    result
+    
+    fut.boxed()
 }
 
 async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
@@ -94,12 +101,12 @@ async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
 
     let node_modules_path = project_path.join("node_modules");
     let dep_errs_futures = package_lock.dependencies.iter()
-        .map(|dep| get_dependency_errors_async(
+        .map(|dep| get_dependency_errors(
             dep.0, dep.1, node_modules_path.as_path()));
 
     let dep_errs_future = join_all(dep_errs_futures);
 
-    let dep_errs =  dep_errs_future.await
+    let dep_errs = dep_errs_future.await
         .into_iter()
         .flatten()
         .collect::<Vec<DependencyError>>();
