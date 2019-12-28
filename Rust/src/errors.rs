@@ -1,6 +1,6 @@
-﻿use std::{io, fmt};
-use std::error::Error;
 use crate::errors::VerifyNodeModulesError::*;
+use std::error::Error;
+use std::{fmt, io};
 
 /// Trait that allows getting an error code (numeric) from errors.
 pub trait ErrorCode: Error {
@@ -20,16 +20,13 @@ pub enum VerifyNodeModulesError {
 impl fmt::Display for VerifyNodeModulesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            CouldNotGetCwd(ref e) =>
-                write!(f, "Could not get current working directory: {}", e),
-            CouldNotOpenPackageLock(ref e) =>
-                write!(f, "Could not open package-lock.json: {}", e),
-            CouldNotOpenPackageJson(ref e) =>
-                write!(f, "Could not open package.json: {}", e),
-            CouldNotParsePackageLock(ref e) =>
-                write!(f, "Could not parse package-lock.json: {}", e),
-            CouldNotParsePackageJson(ref e) =>
-                write!(f, "Could not parse package.json: {}", e)
+            CouldNotGetCwd(ref e) => write!(f, "Could not get current working directory: {}", e),
+            CouldNotOpenPackageLock(ref e) => write!(f, "Could not open package-lock.json: {}", e),
+            CouldNotOpenPackageJson(ref e) => write!(f, "Could not open package.json: {}", e),
+            CouldNotParsePackageLock(ref e) => {
+                write!(f, "Could not parse package-lock.json: {}", e)
+            }
+            CouldNotParsePackageJson(ref e) => write!(f, "Could not parse package.json: {}", e),
         }
     }
 }
@@ -41,7 +38,7 @@ impl Error for VerifyNodeModulesError {
             CouldNotOpenPackageLock(ref e) => Some(e),
             CouldNotOpenPackageJson(ref e) => Some(e),
             CouldNotParsePackageLock(ref e) => Some(e),
-            CouldNotParsePackageJson(ref e) => Some(e)
+            CouldNotParsePackageJson(ref e) => Some(e),
         }
     }
 }
@@ -53,7 +50,7 @@ impl ErrorCode for VerifyNodeModulesError {
             CouldNotOpenPackageLock(_) => -2,
             CouldNotOpenPackageJson(_) => -3,
             CouldNotParsePackageLock(_) => -4,
-            CouldNotParsePackageJson(_) => -5
+            CouldNotParsePackageJson(_) => -5,
         }
     }
 }
