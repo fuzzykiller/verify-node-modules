@@ -1,11 +1,11 @@
+use std::env;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
-use std::{env, fs};
 
-use futures::executor::block_on;
-use futures::future::{join_all, BoxFuture};
+use futures::future::{BoxFuture, join_all};
 use futures::FutureExt;
+use tokio::fs;
 
 use crate::errors::{ErrorCode, VerifyNodeModulesError};
 use crate::npm_types::*;
@@ -46,6 +46,7 @@ fn get_dependency_errors<'a>(
 
         let package_json_result: Result<PackageJSONRoot, VerifyNodeModulesError> =
             fs::read_to_string(package_json_path)
+                .await
                 .map_err(VerifyNodeModulesError::CouldNotOpenPackageJson)
                 .and_then(|contents| {
                     serde_json::from_str(&contents)
@@ -93,6 +94,7 @@ async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
     let package_lock_path = project_path.join("package-lock.json");
 
     let package_lock_contents = fs::read_to_string(package_lock_path)
+        .await
         .map_err(VerifyNodeModulesError::CouldNotOpenPackageLock)?;
 
     let package_lock: PackageLockJSONRoot = serde_json::from_str(package_lock_contents.as_ref())
@@ -137,8 +139,9 @@ async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
     Ok(exit_code)
 }
 
-fn main() {
-    let result = block_on(verify_node_modules());
+#[tokio::main(threaded_scheduler)]
+async fn main() {
+    let result = verify_node_modules().await;
 
     match result {
         Ok(exit_code) => std::process::exit(exit_code),

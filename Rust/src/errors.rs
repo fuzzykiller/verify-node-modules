@@ -1,6 +1,7 @@
-use crate::errors::VerifyNodeModulesError::*;
-use std::error::Error;
 use std::{fmt, io};
+use std::error::Error;
+
+use crate::errors::VerifyNodeModulesError::*;
 
 /// Trait that allows getting an error code (numeric) from errors.
 pub trait ErrorCode: Error {
@@ -11,8 +12,8 @@ pub trait ErrorCode: Error {
 #[derive(Debug)]
 pub enum VerifyNodeModulesError {
     CouldNotGetCwd(io::Error),
-    CouldNotOpenPackageLock(io::Error),
-    CouldNotOpenPackageJson(io::Error),
+    CouldNotOpenPackageLock(tokio::io::Error),
+    CouldNotOpenPackageJson(tokio::io::Error),
     CouldNotParsePackageLock(serde_json::Error),
     CouldNotParsePackageJson(serde_json::Error),
 }
