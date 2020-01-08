@@ -1,4 +1,5 @@
 use std::env;
+use std::io::ErrorKind;
 use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
@@ -40,18 +41,20 @@ fn get_dependency_errors<'a>(
 
         DEPENDENCY_COUNT.fetch_add(1, Ordering::Relaxed);
 
-        if !package_json_path.exists() {
-            return vec![make_dep_err("None")];
-        }
+        let package_json_text_result = fs::read_to_string(package_json_path).await;
 
         let package_json_result: Result<PackageJSONRoot, VerifyNodeModulesError> =
-            fs::read_to_string(package_json_path)
-                .await
-                .map_err(VerifyNodeModulesError::CouldNotOpenPackageJson)
-                .and_then(|contents| {
-                    serde_json::from_str(&contents)
-                        .map_err(VerifyNodeModulesError::CouldNotParsePackageJson)
-                });
+            match package_json_text_result {
+                Ok(json_text) => serde_json::from_str(&json_text)
+                    .map_err(VerifyNodeModulesError::CouldNotParsePackageJson),
+                Err(e) => {
+                    if e.kind() == ErrorKind::NotFound {
+                        return vec![make_dep_err("None")];
+                    }
+
+                    Err(VerifyNodeModulesError::CouldNotOpenPackageJson(e))
+                }
+            };
 
         let package_json = match package_json_result {
             Ok(json_root) => json_root,
