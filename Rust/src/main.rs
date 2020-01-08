@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
-use futures::future::{BoxFuture, join_all};
+use futures::future::{join_all, BoxFuture};
 use futures::FutureExt;
 use tokio::fs;
 

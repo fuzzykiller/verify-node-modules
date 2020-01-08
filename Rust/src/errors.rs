@@ -1,5 +1,5 @@
-use std::{fmt, io};
 use std::error::Error;
+use std::{fmt, io};
 
 use crate::errors::VerifyNodeModulesError::*;
 
