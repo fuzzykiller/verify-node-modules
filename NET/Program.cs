@@ -5,7 +5,12 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
+#if NET45
 using Newtonsoft.Json;
+#else
+using System.Text.Json;
+#endif
 
 namespace VerifyNodeModules
 {
@@ -79,7 +84,7 @@ namespace VerifyNodeModules
             {
                 errors.Add(new DependencyError(packageName, dependency.Version, packageJson.Version));
             }
-            
+
             var nestedNodeModulesPath = Path.Combine(packagePath, "node_modules");
             var tasks = dependency.Dependencies.Select(kvp => GetDependencyErrors(kvp.Key, kvp.Value, nestedNodeModulesPath)).ToArray();
 
@@ -90,6 +95,8 @@ namespace VerifyNodeModules
 
             return errors;
         }
+
+#if NET45
 
         private static Task<T> LoadJsonFile<T>(string path)
         {
@@ -104,6 +111,18 @@ namespace VerifyNodeModules
                 }
             });
         }
+
+#else
+
+        private static async Task<T> LoadJsonFile<T>(string path)
+        {
+            await using var file = File.OpenRead(path);
+            var serializerOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+            var obj = await JsonSerializer.DeserializeAsync<T>(file, serializerOptions);
+            return obj;
+        }
+
+#endif
     }
 }
 

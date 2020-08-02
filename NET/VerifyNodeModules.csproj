@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>VerifyNodeModules</RootNamespace>
+    <TargetFrameworks>net45;netcoreapp3.1</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <None Condition=" '$(TargetFramework)' != 'net45' " Remove="App.config" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Condition=" '$(TargetFramework)' == 'net45' " Include="Newtonsoft.Json" Version="12.0.1" />
+  </ItemGroup>
+  
+</Project>
