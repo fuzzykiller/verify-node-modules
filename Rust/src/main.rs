@@ -142,7 +142,7 @@ async fn verify_node_modules() -> Result<i32, VerifyNodeModulesError> {
     Ok(exit_code)
 }
 
-#[tokio::main(threaded_scheduler)]
+#[tokio::main]
 async fn main() {
     let result = verify_node_modules().await;
 
