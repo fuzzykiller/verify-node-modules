@@ -1,6 +1,8 @@
 name: Build Rust app
-
-on: [push]
+on:
+  push:
+    paths:
+      - "Rust/**"
 
 jobs:
   build:
