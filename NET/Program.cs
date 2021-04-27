@@ -96,9 +96,21 @@ namespace VerifyNodeModules
             return errors;
         }
 
+        private static async Task<T> LoadJsonFile<T>(string path)
+        {
+            try
+            {
+                return await LoadJsonFileCore<T>(path);
+            }
+            catch (Exception ex)
+            {
+                throw new JsonException(path, ex);
+            }
+        }
+
 #if NET45
 
-        private static Task<T> LoadJsonFile<T>(string path)
+        private static Task<T> LoadJsonFileCore<T>(string path)
         {
             return Task.Run(() =>
             {
@@ -114,7 +126,7 @@ namespace VerifyNodeModules
 
 #else
 
-        private static async Task<T> LoadJsonFile<T>(string path)
+        private static async Task<T> LoadJsonFileCore<T>(string path)
         {
             await using var file = File.OpenRead(path);
             var serializerOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
