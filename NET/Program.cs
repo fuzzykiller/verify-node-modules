@@ -6,12 +6,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-#if NET45
-using Newtonsoft.Json;
-#else
-using System.Text.Json;
-#endif
-
 namespace VerifyNodeModules
 {
     public class Program
@@ -29,7 +23,7 @@ namespace VerifyNodeModules
                 return -1;
             }
 
-            var packageLock = await LoadJsonFile<PackageLockRoot>(packageLockPath);
+            var packageLock = await JsonAccess.LoadPackageLockJson(packageLockPath);
 
             var sw = Stopwatch.StartNew();
 
@@ -77,7 +71,7 @@ namespace VerifyNodeModules
                 return new[] { new DependencyError(packageName, dependency.Version, "None") };
             }
 
-            var packageJson = await LoadJsonFile<PackageJson>(packageJsonPath);
+            var packageJson = await JsonAccess.LoadPackageJson(packageJsonPath);
             var errors = new List<DependencyError>();
 
             if (packageJson.Version != dependency.Version)
@@ -95,46 +89,6 @@ namespace VerifyNodeModules
 
             return errors;
         }
-
-        private static async Task<T> LoadJsonFile<T>(string path)
-        {
-            try
-            {
-                return await LoadJsonFileCore<T>(path);
-            }
-            catch (Exception ex)
-            {
-                throw new JsonException(path, ex);
-            }
-        }
-
-#if NET45
-
-        private static Task<T> LoadJsonFileCore<T>(string path)
-        {
-            return Task.Run(() =>
-            {
-                using (var file = File.OpenText(path))
-                {
-                    var serializer = new JsonSerializer();
-                    var obj = (T)serializer.Deserialize(file, typeof(T));
-
-                    return obj;
-                }
-            });
-        }
-
-#else
-
-        private static async Task<T> LoadJsonFileCore<T>(string path)
-        {
-            await using var file = File.OpenRead(path);
-            var serializerOptions = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-            var obj = await JsonSerializer.DeserializeAsync<T>(file, serializerOptions);
-            return obj;
-        }
-
-#endif
     }
 }
 

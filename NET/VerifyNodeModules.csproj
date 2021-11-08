@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>VerifyNodeModules</RootNamespace>
-    <TargetFrameworks>net45;netcoreapp3.1</TargetFrameworks>
+    <TargetFrameworks>net45;netcoreapp3.1;net60</TargetFrameworks>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
   
