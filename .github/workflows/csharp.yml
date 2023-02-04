@@ -1,0 +1,31 @@
+name: "Build C# app"
+
+on:
+  push:
+    paths:
+      - "CSharp/**"
+      - ".github/workflows/csharp.yml"
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        dotnet:
+          - { framework: "netcoreapp3.1", version: "3.1.x" }
+          - { framework: "net60", version: "6.0.x" }
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install .NET Core
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: ${{ matrix.dotnet.version }}
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build
+        run: |
+          cd CSharp
+          dotnet build VerifyNodeModulesCSharp.sln -f ${{ matrix.dotnet.framework }}
